@@ -1,6 +1,7 @@
 from google import genai
 from dotenv import load_dotenv
 import os
+import time
 
 from retriever import search_knowledge_base
 
@@ -30,21 +31,41 @@ client = genai.Client(api_key=api_key)
 
 def generate_answer(question):
 
-    # --------------------------------------
-    # Retrieve relevant information
-    # --------------------------------------
+    total_start = time.perf_counter()
+
+    print("\n========================================")
+    print("🚀 NEW REQUEST")
+    print(f"❓ Question: {question}")
+    print("========================================")
+
+
+    # ======================================
+    # STEP 1: RETRIEVAL
+    # ======================================
+
+    retrieval_start = time.perf_counter()
 
     results = search_knowledge_base(
         question,
         top_k=3
     )
 
+    retrieval_time = time.perf_counter() - retrieval_start
 
-    # --------------------------------------
-    # CASE 1: No knowledge-base results
-    # --------------------------------------
+    print(f"🔎 Retrieval time: {retrieval_time:.2f} seconds")
+    print(f"📚 Results found: {len(results)}")
+
+
+    # ======================================
+    # CASE 1: NO KNOWLEDGE BASE RESULTS
+    # ======================================
 
     if not results:
+
+        print("⚠️ No knowledge-base results")
+        print("🤖 Using Gemini general knowledge")
+
+        generation_start = time.perf_counter()
 
         prompt = f"""
 You are a helpful AI assistant.
@@ -63,24 +84,38 @@ Give a concise and useful answer.
             contents=prompt
         )
 
+        generation_time = time.perf_counter() - generation_start
+
+        print(f"🤖 Generation time: {generation_time:.2f} seconds")
+
+        total_time = time.perf_counter() - total_start
+
+        print(f"⏱️ TOTAL TIME: {total_time:.2f} seconds")
+        print("========================================\n")
+
         return {
             "answer": response.text,
             "sources": []
         }
 
 
-    # --------------------------------------
-    # Check similarity score
-    # --------------------------------------
+    # ======================================
+    # STEP 2: CHECK SIMILARITY SCORE
+    # ======================================
 
     best_score = results[0]["score"]
 
+    print(f"📊 Best similarity score: {best_score:.4f}")
 
-    # --------------------------------------
-    # CASE 2: Relevant knowledge found
-    # --------------------------------------
+
+    # ======================================
+    # CASE 2: RELEVANT KNOWLEDGE FOUND
+    # ======================================
 
     if best_score >= 0.50:
+
+        print("✅ Relevant knowledge found")
+        print("📖 Using RAG context")
 
         context = "\n\n".join(
             result["text"]
@@ -93,8 +128,8 @@ You are a helpful Voice RAG assistant.
 Answer the user's question using the information
 provided in the knowledge base context below.
 
-You should prefer the knowledge base information
-when it is relevant to the question.
+Prefer the knowledge base information when it
+is relevant to the question.
 
 Knowledge Base Context:
 -----------------------
@@ -107,10 +142,21 @@ User Question:
 Give a clear and concise answer.
 """
 
+        generation_start = time.perf_counter()
+
         response = client.models.generate_content(
             model="gemini-3.6-flash",
             contents=prompt
         )
+
+        generation_time = time.perf_counter() - generation_start
+
+        print(f"🤖 Generation time: {generation_time:.2f} seconds")
+
+        total_time = time.perf_counter() - total_start
+
+        print(f"⏱️ TOTAL TIME: {total_time:.2f} seconds")
+        print("========================================\n")
 
         return {
             "answer": response.text,
@@ -118,11 +164,12 @@ Give a clear and concise answer.
         }
 
 
-    # --------------------------------------
-    # CASE 3: Knowledge base not relevant
-    # --------------------------------------
-    # Use Gemini's general knowledge
-    # --------------------------------------
+    # ======================================
+    # CASE 3: KNOWLEDGE BASE NOT RELEVANT
+    # ======================================
+
+    print("⚠️ Knowledge base not relevant")
+    print("🤖 Using Gemini general knowledge")
 
     prompt = f"""
 You are a helpful AI assistant.
@@ -142,10 +189,21 @@ User Question:
 Give a clear and concise answer.
 """
 
+    generation_start = time.perf_counter()
+
     response = client.models.generate_content(
         model="gemini-3.6-flash",
         contents=prompt
     )
+
+    generation_time = time.perf_counter() - generation_start
+
+    print(f"🤖 Generation time: {generation_time:.2f} seconds")
+
+    total_time = time.perf_counter() - total_start
+
+    print(f"⏱️ TOTAL TIME: {total_time:.2f} seconds")
+    print("========================================\n")
 
     return {
         "answer": response.text,
@@ -154,7 +212,7 @@ Give a clear and concise answer.
 
 
 # ==========================================
-# 4. TESTING
+# 4. LOCAL TESTING
 # ==========================================
 
 if __name__ == "__main__":
@@ -163,10 +221,8 @@ if __name__ == "__main__":
 
     result = generate_answer(question)
 
-
     print("\n--- ANSWER ---")
     print(result["answer"])
-
 
     print("\n--- SOURCES ---")
 
