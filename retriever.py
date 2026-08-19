@@ -1,68 +1,167 @@
+from pathlib import Path
 import json
-import math
-
-from embedding import create_embeddings
 
 
-KNOWLEDGE_BASE_PATH = "../data/knowledge_base.json"
+# ---------------------------------------------------------
+# KNOWLEDGE BASE PATH
+# ---------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+
+# If retriever.py is inside src/
+# and data/ is in the project root:
+KNOWLEDGE_BASE_PATH = BASE_DIR.parent / "data" / "knowledge_base.json"
 
 
-def cosine_similarity(vector_a, vector_b):
-    dot_product = sum(a * b for a, b in zip(vector_a, vector_b))
-
-    magnitude_a = math.sqrt(sum(a * a for a in vector_a))
-    magnitude_b = math.sqrt(sum(b * b for b in vector_b))
-
-    if magnitude_a == 0 or magnitude_b == 0:
-        return 0
-
-    return dot_product / (magnitude_a * magnitude_b)
-
+# ---------------------------------------------------------
+# LOAD KNOWLEDGE BASE
+# ---------------------------------------------------------
 
 def load_knowledge_base():
+    """
+    Load knowledge_base.json from the project's data folder.
+    """
+
+    if not KNOWLEDGE_BASE_PATH.exists():
+        raise FileNotFoundError(
+            f"Knowledge base not found at: {KNOWLEDGE_BASE_PATH}"
+        )
 
     with open(KNOWLEDGE_BASE_PATH, "r", encoding="utf-8") as file:
         return json.load(file)
 
 
+# ---------------------------------------------------------
+# SEARCH KNOWLEDGE BASE
+# ---------------------------------------------------------
+
 def search_knowledge_base(question, top_k=3):
+    """
+    Search the knowledge base and return the most relevant
+    documents.
+
+    This is a simple keyword-based retriever.
+    """
 
     knowledge_base = load_knowledge_base()
 
-    question_embedding = create_embeddings([question])[0]
+    # Handle different possible JSON structures
+    if isinstance(knowledge_base, dict):
 
-    results = []
+        if "documents" in knowledge_base:
+            documents = knowledge_base["documents"]
 
-    for item in knowledge_base:
+        elif "data" in knowledge_base:
+            documents = knowledge_base["data"]
 
-        score = cosine_similarity(
-            question_embedding,
-            item["embedding"]
+        elif "chunks" in knowledge_base:
+            documents = knowledge_base["chunks"]
+
+        else:
+            documents = [knowledge_base]
+
+    elif isinstance(knowledge_base, list):
+        documents = knowledge_base
+
+    else:
+        documents = []
+
+    question_words = set(
+        question.lower()
+        .strip()
+        .split()
+    )
+
+    scored_documents = []
+
+    for document in documents:
+
+        # -------------------------------------------------
+        # Extract text from different possible formats
+        # -------------------------------------------------
+
+        if isinstance(document, str):
+            text = document
+
+        elif isinstance(document, dict):
+
+            text = (
+                document.get("text")
+                or document.get("content")
+                or document.get("chunk")
+                or document.get("page_content")
+                or ""
+            )
+
+        else:
+            continue
+
+        if not text:
+            continue
+
+        # -------------------------------------------------
+        # Calculate simple keyword score
+        # -------------------------------------------------
+
+        text_lower = text.lower()
+
+        score = 0
+
+        for word in question_words:
+
+            if len(word) > 2 and word in text_lower:
+                score += 1
+
+        scored_documents.append(
+            {
+                "text": text,
+                "score": score,
+                "document": document,
+            }
         )
 
-        results.append({
-            "text": item["text"],
-            "score": score
-        })
+    # -----------------------------------------------------
+    # Sort by relevance
+    # -----------------------------------------------------
 
-    results.sort(
+    scored_documents.sort(
         key=lambda item: item["score"],
         reverse=True
     )
 
-    return results[:top_k]
+    # -----------------------------------------------------
+    # Return top results
+    # -----------------------------------------------------
 
+    results = []
 
-if __name__ == "__main__":
+    for item in scored_documents[:top_k]:
 
-    question = input("Ask your question: ")
+        original_document = item["document"]
 
-    results = search_knowledge_base(question)
+        if isinstance(original_document, dict):
 
-    print("\n--- SEARCH RESULTS ---")
+            result = {
+                "text": item["text"],
+                "score": item["score"],
+            }
 
-    for i, result in enumerate(results, start=1):
+            # Preserve useful metadata if available
+            if "source" in original_document:
+                result["source"] = original_document["source"]
 
-        print(f"\nResult {i}")
-        print(f"Similarity: {result['score']:.4f}")
-        print(result["text"])
+            if "title" in original_document:
+                result["title"] = original_document["title"]
+
+            results.append(result)
+
+        else:
+
+            results.append(
+                {
+                    "text": item["text"],
+                    "score": item["score"],
+                }
+            )
+
+    return results
